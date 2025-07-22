@@ -178,7 +178,25 @@ def handle_photo(update: Update, context: CallbackContext) -> None:
     os.remove(temp_photo_path)
 
 def user_command(update: Update, context: CallbackContext) -> None:
-    user_id = update.effective_user.id
+  from supabase_client import supabase
+    user_id = str(update.effective_user.id)
+    username = update.effective_user.username or "N/A"
+try:
+        result = supabase.table("users").select("*").eq("telegram_id", user_id).execute()
+        if not result.data:
+            # 新用户注册
+            supabase.table("users").insert({
+                "telegram_id": user_id,
+                "username": username,
+                "call_count": 0
+            }).execute()
+            update.message.reply_text(f"🎉 欢迎新用户 {username}，你已被记录在数据库中！")
+        else:
+            count = result.data[0].get("call_count", 0)
+            update.message.reply_text(f"👤 你已经在数据库中，今天已使用分析功能 {count} 次。")
+    except Exception as e:
+        update.message.reply_text(f"❌ Supabase 查询失败: {e}")
+
     today = str(date.today())
     result = supabase.table("usage_logs").select("*").eq("user_id", user_id).eq("date", today).execute()
     count = result.data[0]["count"] if result.data else 0
