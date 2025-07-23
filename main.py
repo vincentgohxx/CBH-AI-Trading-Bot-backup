@@ -200,7 +200,7 @@ def main():
     dispatcher.add_handler(MessageHandler(Filters.regex("^(English Only|中文|English \+ 中文 \(Both\))$"), set_language))
 
     updater.start_polling()
-    logger.info("✅ CBH AI 交易助手已启动 (Railway 最终稳定版)")
+    logger.info("✅ CBH AI 交易助手已启动")
     updater.idle()
 
 if __name__ == '__main__':
