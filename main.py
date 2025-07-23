@@ -9,7 +9,7 @@ import requests
 from openai import OpenAI
 from PIL import Image
 from supabase import create_client, Client
-from prompts import PROMPT_ANALYST_V2
+from prompts import PROMPT_ANALYST_V2 # 确保您使用的是v2
 
 # --- 日志设置 ---
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -25,7 +25,6 @@ else:
 
 FMP_API_KEY = os.getenv("FMP_API_KEY")
 
-# 【优化】增加健壮性，处理环境变量缺失的情况
 supabase: Client = None
 try:
     SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -44,7 +43,7 @@ LANGUAGES = {
     "start_features": { "cn": "**核心功能:**\n1️⃣ **/analyze**: 上传图表\n2️⃣ **/price**: 实时行情\n3️⃣ **/language**: 切换语言\n4️⃣ **/help**: 所有指令\n5️⃣ **/user**: 查看使用次数", "en": "**Features:**\n1️⃣ /analyze\n2️⃣ /price\n3️⃣ /language\n4️⃣ /help\n5️⃣ /user" }
 }
 
-def get_text(key, lang_code):
+def get_text(key, context: CallbackContext):
     lang_pref = context.user_data.get('lang', 'both')
     if lang_pref == 'en': return LANGUAGES[key].get('en', '...')
     if lang_pref == 'cn': return LANGUAGES[key].get('cn', '...')
@@ -53,7 +52,6 @@ def get_text(key, lang_code):
 # --- 指令处理 ---
 def start(update: Update, context: CallbackContext) -> None:
     context.user_data.setdefault('lang', 'both')
-    lang = context.user_data['lang']
     welcome_text = get_text('start_welcome', context)
     features_text = get_text('start_features', context)
     update.message.reply_text(f"{welcome_text}\n\n{features_text}", parse_mode='Markdown')
@@ -101,11 +99,11 @@ def button_callback_handler(update: Update, context: CallbackContext) -> None:
     query.edit_message_text(f"正在查询 {symbol}...")
     data = get_price(symbol)
     if "error" in data:
-        query.edit_text(f"❌ {data['error']}")
+        query.edit_message_text(f"❌ {data['error']}")
     else:
         change_sign = "📈" if data["change"] > 0 else "📉"
         response_text = f"**{data.get('name', symbol)} ({symbol})**\n当前价格: `{data['price']}`\n{change_sign} 变化: `{data['change']} ({data['changesPercentage']:.2f}%)`"
-        query.edit_text(response_text, parse_mode='Markdown')
+        query.edit_message_text(response_text, parse_mode='Markdown')
 
 # --- 图像分析 ---
 def analyze_command(update: Update, context: CallbackContext) -> None:
@@ -122,7 +120,7 @@ def analyze_chart(image_path: str, lang: str) -> str:
             
         response = client.chat.completions.create(
             model=AI_MODEL_NAME,
-            messages=[
+            messages=[  # <--- 这里是方括号 [
                 {
                     "role": "user",
                     "content": [
@@ -130,7 +128,7 @@ def analyze_chart(image_path: str, lang: str) -> str:
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]
                 }
-            ],
+            ], # <--- 这里也必须是配对的方括号 ]
             max_tokens=600
         )
         return response.choices[0].message.content.strip()
@@ -139,30 +137,29 @@ def analyze_chart(image_path: str, lang: str) -> str:
         return f"❌ 图像分析失败: {e}"
 
 def handle_photo(update: Update, context: CallbackContext) -> None:
-    # 【优化】如果数据库未配置，则跳过用户统计
     if supabase:
         user_id = str(update.effective_user.id)
         today = str(date.today())
         try:
-            record = supabase.table("usage_logs").select("count", count="exact").eq("user_id", user_id).eq("date", today).execute()
+            # 使用 .select() with count="exact" 来获取行数
+            record = supabase.table("usage_logs").select("user_id", count="exact").eq("user_id", user_id).eq("date", today).execute()
             count = record.count
             
             if count >= 3:
                 update.message.reply_text("📌 今日上传次数已达上限（3次/天）。\n🚀 订阅 Pro 版本可享受无限图表分析。")
                 return
             
-            # 使用 upsert 简化逻辑：如果记录存在则+1，不存在则创建
+            # 使用 upsert 简化逻辑
             supabase.rpc('increment_usage', {'p_user_id': user_id, 'p_date': today}).execute()
 
         except Exception as e:
             logger.error(f"日志记录失败: {e}")
-            # 即使日志失败，也继续分析
     
     reply = update.message.reply_text("🧠 分析中，请稍候...")
     photo_file = update.message.photo[-1].get_file()
     path = f"temp_{photo_file.file_id}.jpg"
     photo_file.download(path)
-    lang = context.user_data.get("lang", "cn") # 默认中文
+    lang = context.user_data.get("lang", "cn")
     result = analyze_chart(path, lang)
     reply.edit_text(result)
     os.remove(path)
@@ -203,7 +200,7 @@ def main():
     dispatcher.add_handler(MessageHandler(Filters.regex("^(English Only|中文|English \+ 中文 \(Both\))$"), set_language))
 
     updater.start_polling()
-    logger.info("✅ CBH AI 交易助手已启动 (Railway 稳定版)")
+    logger.info("✅ CBH AI 交易助手已启动 (Railway 最终稳定版)")
     updater.idle()
 
 if __name__ == '__main__':
