@@ -109,10 +109,11 @@ def analyze_chart(image_path: str, lang: str) -> str:
             b64 = base64.b64encode(f.read()).decode()
         resp = client.chat.completions.create(
             model=AI_MODEL_NAME,
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-            ]},
+            messages = [
+              {"role": "user", "content": [
+        {"type": "text", "text": prompt_text},
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+    ),
             max_tokens=600
         )
         return resp.choices[0].message.content.strip()
