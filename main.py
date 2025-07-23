@@ -9,7 +9,7 @@ import requests
 from openai import OpenAI
 from PIL import Image
 from supabase import create_client, Client
-from prompts import PROMPT_ANALYST_V2 # 确保您使用的是v2
+from prompts import PROMPT_ANALYST_V2
 
 # --- 日志设置 ---
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -43,11 +43,17 @@ LANGUAGES = {
     "start_features": { "cn": "**核心功能:**\n1️⃣ **/analyze**: 上传图表\n2️⃣ **/price**: 实时行情\n3️⃣ **/language**: 切换语言\n4️⃣ **/help**: 所有指令\n5️⃣ **/user**: 查看使用次数", "en": "**Features:**\n1️⃣ /analyze\n2️⃣ /price\n3️⃣ /language\n4️⃣ /help\n5️⃣ /user" }
 }
 
-def get_text(key, context: CallbackContext):
+# 【修复】修正了此函数的逻辑错误
+def get_text(key: str, context: CallbackContext) -> str:
+    """根据用户的语言偏好获取文本。"""
     lang_pref = context.user_data.get('lang', 'both')
-    if lang_pref == 'en': return LANGUAGES[key].get('en', '...')
-    if lang_pref == 'cn': return LANGUAGES[key].get('cn', '...')
-    return f"{LANGUAGES[key].get('en', '...')}\n\n{LANGUAGES[key].get('cn', '...')}"
+    
+    if lang_pref == 'en':
+        return LANGUAGES[key].get('en', f'Error: Text for key "{key}" not found.')
+    elif lang_pref == 'cn':
+        return LANGUAGES[key].get('cn', f'错误: 找不到键为 "{key}" 的文本。')
+    else: # both
+        return f"{LANGUAGES[key].get('en', '')}\n\n{LANGUAGES[key].get('cn', '')}".strip()
 
 # --- 指令处理 ---
 def start(update: Update, context: CallbackContext) -> None:
@@ -109,7 +115,6 @@ def button_callback_handler(update: Update, context: CallbackContext) -> None:
 def analyze_command(update: Update, context: CallbackContext) -> None:
     update.message.reply_text("Please upload a chart image (JPG/PNG) now.")
 
-# 【修复】修正了此函数的严重语法错误
 def analyze_chart(image_path: str, lang: str) -> str:
     if not client: return "❌ AI服务未配置 (OPENAI_API_KEY缺失)。"
     
@@ -120,7 +125,7 @@ def analyze_chart(image_path: str, lang: str) -> str:
             
         response = client.chat.completions.create(
             model=AI_MODEL_NAME,
-            messages=[  # <--- 这里是方括号 [
+            messages=[
                 {
                     "role": "user",
                     "content": [
@@ -128,7 +133,7 @@ def analyze_chart(image_path: str, lang: str) -> str:
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]
                 }
-            ], # <--- 这里也必须是配对的方括号 ]
+            ],
             max_tokens=600
         )
         return response.choices[0].message.content.strip()
@@ -141,17 +146,14 @@ def handle_photo(update: Update, context: CallbackContext) -> None:
         user_id = str(update.effective_user.id)
         today = str(date.today())
         try:
-            # 使用 .select() with count="exact" 来获取行数
-            record = supabase.table("usage_logs").select("user_id", count="exact").eq("user_id", user_id).eq("date", today).execute()
+            record = supabase.table("usage_logs").select("count", count="exact").eq("user_id", user_id).eq("date", today).execute()
             count = record.count
             
             if count >= 3:
                 update.message.reply_text("📌 今日上传次数已达上限（3次/天）。\n🚀 订阅 Pro 版本可享受无限图表分析。")
                 return
             
-            # 使用 upsert 简化逻辑
             supabase.rpc('increment_usage', {'p_user_id': user_id, 'p_date': today}).execute()
-
         except Exception as e:
             logger.error(f"日志记录失败: {e}")
     
@@ -200,7 +202,7 @@ def main():
     dispatcher.add_handler(MessageHandler(Filters.regex("^(English Only|中文|English \+ 中文 \(Both\))$"), set_language))
 
     updater.start_polling()
-    logger.info("✅ CBH AI 交易助手已启动")
+    logger.info("✅ CBH AI 交易助手已启动 (Railway 最终稳定版)")
     updater.idle()
 
 if __name__ == '__main__':
